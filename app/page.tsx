@@ -1,6 +1,6 @@
 'use client'
-import { useState } from 'react'
-import { markets, positions, injuries, portfolioHistory } from '@/data/markets'
+import { useState, useEffect } from 'react'
+import { markets as mockMarkets, positions, injuries, portfolioHistory } from '@/data/markets'
 
 function NavTab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
@@ -15,7 +15,7 @@ function NavTab({ label, active, onClick }: { label: string; active: boolean; on
   )
 }
 
-function MarketScanner() {
+function MarketScanner({ markets }: { markets: typeof mockMarkets }) {
   const [sport, setSport] = useState<'ALL' | 'NBA' | 'NHL'>('ALL')
   const [edgeOnly, setEdgeOnly] = useState(false)
 
@@ -390,19 +390,84 @@ function InjuryFeed() {
 
 export default function Home() {
   const [tab, setTab] = useState<'markets' | 'sizing' | 'portfolio' | 'injuries'>('markets')
+  const [apiKey, setApiKey] = useState<string>('')
+  const [showSettings, setShowSettings] = useState(false)
+  const [liveMarkets, setLiveMarkets] = useState<typeof mockMarkets | null>(null)
+  const [isLive, setIsLive] = useState(false)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setApiKey(localStorage.getItem('kalshi_api_key') || '')
+    }
+  }, [])
+
+  useEffect(() => {
+    fetch('/api/markets')
+      .then(r => r.json())
+      .then(d => {
+        if (d.live && d.markets?.length > 0) {
+          setLiveMarkets(d.markets)
+          setIsLive(true)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  function saveApiKey(key: string) {
+    setApiKey(key)
+    localStorage.setItem('kalshi_api_key', key)
+    setShowSettings(false)
+  }
+
+  const displayMarkets = liveMarkets ?? mockMarkets
 
   return (
     <main className="max-w-6xl mx-auto p-4 pb-16">
       <div className="flex items-center justify-between mb-6 pt-2">
         <div>
           <h1 className="text-2xl font-bold text-white">Kalshi Edge</h1>
-          <p className="text-gray-500 text-sm">Prediction markets dashboard</p>
+          <p className="text-gray-500 text-sm flex items-center gap-2">
+            Prediction markets dashboard
+            {isLive
+              ? <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded font-bold animate-pulse">● LIVE</span>
+              : <span className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded">MOCK DATA</span>
+            }
+          </p>
         </div>
-        <div className="text-right text-sm">
-          <div className="text-green-400 font-bold">$702.00</div>
-          <div className="text-gray-500">+40.4% all time</div>
+        <div className="flex items-center gap-3">
+          <div className="text-right text-sm">
+            <div className="text-green-400 font-bold">$702.00</div>
+            <div className="text-gray-500">+40.4% all time</div>
+          </div>
+          <button onClick={() => setShowSettings(!showSettings)} className="text-gray-400 hover:text-white text-xl" title="Settings">⚙️</button>
         </div>
       </div>
+
+      {showSettings && (
+        <div className="bg-gray-900 border border-gray-700 rounded-xl p-5 mb-6">
+          <h3 className="font-semibold text-white mb-3">Kalshi API Key</h3>
+          <p className="text-gray-400 text-sm mb-3">Enter your Kalshi API key to see live market data and your real portfolio. Stored locally in your browser.</p>
+          <div className="flex gap-2">
+            <input
+              type="password"
+              defaultValue={apiKey}
+              id="api-key-input"
+              placeholder="your-kalshi-api-key"
+              className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-4 py-2 text-white text-sm font-mono focus:outline-none focus:border-green-500"
+            />
+            <button
+              onClick={() => {
+                const val = (document.getElementById('api-key-input') as HTMLInputElement).value
+                saveApiKey(val)
+              }}
+              className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white text-sm font-semibold rounded-lg"
+            >
+              Save
+            </button>
+          </div>
+          {apiKey && <div className="text-xs text-green-400 mt-2">✓ API key saved</div>}
+        </div>
+      )}
 
       <div className="flex gap-1 bg-gray-900 p-1 rounded-xl mb-6 overflow-x-auto">
         <NavTab label="📊 Markets" active={tab === 'markets'} onClick={() => setTab('markets')} />
@@ -411,7 +476,7 @@ export default function Home() {
         <NavTab label="🏥 Injuries" active={tab === 'injuries'} onClick={() => setTab('injuries')} />
       </div>
 
-      {tab === 'markets' && <MarketScanner />}
+      {tab === 'markets' && <MarketScanner markets={displayMarkets} />}
       {tab === 'sizing' && <BetSizer />}
       {tab === 'portfolio' && <Portfolio />}
       {tab === 'injuries' && <InjuryFeed />}
