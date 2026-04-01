@@ -198,7 +198,66 @@ function BetSizer() {
   )
 }
 
-function Portfolio() {
+function Portfolio({ livePortfolio }: { livePortfolio: LivePortfolio | null }) {
+  // If live data, show it instead
+  if (livePortfolio) {
+    const bal = livePortfolio.balance?.balance ? (livePortfolio.balance.balance / 100).toFixed(2) : '—'
+    const payout = livePortfolio.balance?.payout ? (livePortfolio.balance.payout / 100).toFixed(2) : '—'
+    const livePos = livePortfolio.positions ?? []
+    return (
+      <div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
+          <div className="bg-gray-900 border border-green-700 rounded-xl p-4 text-center">
+            <div className="text-gray-400 text-sm mb-1">Cash Balance</div>
+            <div className="text-green-400 text-2xl font-bold">${bal}</div>
+            <div className="text-xs text-green-600 mt-1">● live</div>
+          </div>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 text-center">
+            <div className="text-gray-400 text-sm mb-1">Pending Payout</div>
+            <div className="text-white text-2xl font-bold">${payout}</div>
+          </div>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 text-center">
+            <div className="text-gray-400 text-sm mb-1">Open Positions</div>
+            <div className="text-white text-2xl font-bold">{livePos.filter(p => p.position !== 0).length}</div>
+          </div>
+        </div>
+        {livePos.filter(p => p.position !== 0).length > 0 ? (
+          <div className="bg-gray-900 rounded-xl border border-gray-700 overflow-hidden">
+            <div className="px-5 py-3 bg-gray-800 border-b border-gray-700 font-semibold text-gray-200">Live Positions</div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-gray-400 border-b border-gray-700">
+                  <th className="px-4 py-3 text-left">Ticker</th>
+                  <th className="px-4 py-3 text-right">Contracts</th>
+                  <th className="px-4 py-3 text-right">Cost</th>
+                  <th className="px-4 py-3 text-right">Unrealized P&L</th>
+                  <th className="px-4 py-3 text-right">Realized P&L</th>
+                </tr>
+              </thead>
+              <tbody>
+                {livePos.filter(p => p.position !== 0).map((p, i) => (
+                  <tr key={i} className="border-b border-gray-800">
+                    <td className="px-4 py-3 font-mono text-xs text-white">{p.ticker}</td>
+                    <td className="px-4 py-3 text-right text-white font-bold">{p.position}</td>
+                    <td className="px-4 py-3 text-right text-gray-300">${(p.total_cost / 100).toFixed(2)}</td>
+                    <td className={`px-4 py-3 text-right font-bold ${p.unrealized_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {p.unrealized_pnl >= 0 ? '+' : ''}${(p.unrealized_pnl / 100).toFixed(2)}
+                    </td>
+                    <td className={`px-4 py-3 text-right font-bold ${p.realized_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {p.realized_pnl >= 0 ? '+' : ''}${(p.realized_pnl / 100).toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-center py-10 text-gray-500">No open positions</div>
+        )}
+      </div>
+    )
+  }
+
   const open = positions.filter(p => p.status === 'open')
   const closed = positions.filter(p => p.status === 'closed')
   const unrealizedPnL = open.reduce((sum, p) => sum + p.contracts * (p.currentPrice - p.avgCost), 0)
@@ -340,7 +399,34 @@ function Portfolio() {
   )
 }
 
+interface LiveInjury {
+  player: string; team: string; position: string; injury: string;
+  status: string; reportedAt: string; sport: string; lineMovement: string; affectedMarkets: string[]
+}
+
 function InjuryFeed() {
+  const [liveInjuries, setLiveInjuries] = useState<LiveInjury[] | null>(null)
+  const [injLive, setInjLive] = useState(false)
+  const [sport, setSport] = useState<'ALL' | 'NBA' | 'NHL'>('ALL')
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'OUT' | 'QUESTIONABLE'>('ALL')
+
+  useEffect(() => {
+    fetch('/api/injuries')
+      .then(r => r.json())
+      .then(d => {
+        if (d.live && d.injuries?.length > 0) {
+          setLiveInjuries(d.injuries)
+          setInjLive(true)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  const displayInjuries = liveInjuries ?? injuries as unknown as LiveInjury[]
+  const filtered = displayInjuries
+    .filter(i => sport === 'ALL' || i.sport === sport)
+    .filter(i => statusFilter === 'ALL' || i.status === statusFilter)
+
   const statusColor = (s: string) =>
     s === 'OUT' ? 'bg-red-900 text-red-300' :
     s === 'QUESTIONABLE' ? 'bg-yellow-900 text-yellow-300' :
@@ -348,44 +434,59 @@ function InjuryFeed() {
 
   const lineColor = (s: string) =>
     s === 'expected' ? 'text-orange-400' :
-    s === 'already_moved' ? 'text-gray-400' :
-    'text-gray-500'
+    s === 'already_moved' ? 'text-gray-400' : 'text-gray-500'
 
   const lineText = (s: string) =>
     s === 'expected' ? '⚡ Line movement expected' :
-    s === 'already_moved' ? '✓ Already priced in' :
-    '· Minimal impact'
+    s === 'already_moved' ? '✓ Already priced in' : '· Minimal impact'
 
   return (
     <div>
-      <div className="flex flex-col gap-4">
-        {injuries.map((inj, i) => (
-          <div key={i} className={`bg-gray-900 rounded-xl border p-5 ${inj.status === 'OUT' ? 'border-red-700' : inj.status === 'QUESTIONABLE' ? 'border-yellow-700' : 'border-gray-700'}`}>
+      <div className="flex flex-wrap gap-2 mb-5 items-center">
+        <div className="flex gap-1">
+          {(['ALL', 'NBA', 'NHL'] as const).map(s => (
+            <button key={s} onClick={() => setSport(s)}
+              className={`px-3 py-1 text-xs font-bold rounded-full ${sport === s ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400'}`}>{s}</button>
+          ))}
+        </div>
+        <div className="flex gap-1">
+          {(['ALL', 'OUT', 'QUESTIONABLE'] as const).map(s => (
+            <button key={s} onClick={() => setStatusFilter(s)}
+              className={`px-3 py-1 text-xs font-bold rounded-full ${statusFilter === s ? 'bg-red-700 text-white' : 'bg-gray-800 text-gray-400'}`}>{s}</button>
+          ))}
+        </div>
+        {injLive
+          ? <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded font-bold ml-auto">● LIVE ESPN</span>
+          : <span className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded ml-auto">MOCK DATA</span>}
+      </div>
+      <div className="flex flex-col gap-3">
+        {filtered.slice(0, 30).map((inj, i) => (
+          <div key={i} className={`bg-gray-900 rounded-xl border p-4 ${inj.status === 'OUT' ? 'border-red-700/60' : inj.status === 'QUESTIONABLE' ? 'border-yellow-700/60' : 'border-gray-700'}`}>
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <span className={`text-xs font-bold px-2 py-0.5 rounded ${statusColor(inj.status)}`}>{inj.status}</span>
+                  <span className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded">{inj.sport}</span>
                   <span className="text-gray-500 text-xs">{inj.reportedAt}</span>
                 </div>
-                <div className="text-white font-bold text-lg">{inj.player}</div>
+                <div className="text-white font-bold">{inj.player}</div>
                 <div className="text-gray-400 text-sm">{inj.team} · {inj.position} · {inj.injury}</div>
               </div>
-              <div className={`text-sm font-medium ${lineColor(inj.lineMovement)} shrink-0`}>
+              <div className={`text-xs font-medium ${lineColor(inj.lineMovement)} shrink-0`}>
                 {lineText(inj.lineMovement)}
               </div>
             </div>
-            {inj.affectedMarkets.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {inj.affectedMarkets.map(m => (
-                  <span key={m} className="text-xs bg-gray-800 text-gray-400 px-2 py-1 rounded font-mono">{m}</span>
-                ))}
-              </div>
-            )}
           </div>
         ))}
+        {filtered.length === 0 && <div className="text-center py-10 text-gray-500">No injuries match filter</div>}
       </div>
     </div>
   )
+}
+
+interface LivePortfolio {
+  positions: { ticker: string; position: number; market_exposure: number; realized_pnl: number; unrealized_pnl: number; total_cost: number }[]
+  balance: { balance: number; payout: number }
 }
 
 export default function Home() {
@@ -394,10 +495,13 @@ export default function Home() {
   const [showSettings, setShowSettings] = useState(false)
   const [liveMarkets, setLiveMarkets] = useState<typeof mockMarkets | null>(null)
   const [isLive, setIsLive] = useState(false)
+  const [livePortfolio, setLivePortfolio] = useState<LivePortfolio | null>(null)
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      setApiKey(localStorage.getItem('kalshi_api_key') || '')
+      const key = localStorage.getItem('kalshi_api_key') || ''
+      setApiKey(key)
+      if (key) fetchPortfolio(key)
     }
   }, [])
 
@@ -413,13 +517,24 @@ export default function Home() {
       .catch(() => {})
   }, [])
 
+  function fetchPortfolio(key: string) {
+    fetch('/api/portfolio', { headers: { 'x-kalshi-key': key } })
+      .then(r => r.json())
+      .then(d => { if (d.live) setLivePortfolio(d) })
+      .catch(() => {})
+  }
+
   function saveApiKey(key: string) {
     setApiKey(key)
     localStorage.setItem('kalshi_api_key', key)
     setShowSettings(false)
+    if (key) fetchPortfolio(key)
   }
 
   const displayMarkets = liveMarkets ?? mockMarkets
+  const portfolioBalance = livePortfolio?.balance?.balance
+    ? (livePortfolio.balance.balance / 100).toFixed(2)
+    : '702.00'
 
   return (
     <main className="max-w-6xl mx-auto p-4 pb-16">
@@ -436,8 +551,8 @@ export default function Home() {
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right text-sm">
-            <div className="text-green-400 font-bold">$702.00</div>
-            <div className="text-gray-500">+40.4% all time</div>
+            <div className="text-green-400 font-bold">${portfolioBalance}</div>
+            <div className="text-gray-500">{livePortfolio ? '● live balance' : '+40.4% all time'}</div>
           </div>
           <button onClick={() => setShowSettings(!showSettings)} className="text-gray-400 hover:text-white text-xl" title="Settings">⚙️</button>
         </div>
@@ -478,7 +593,7 @@ export default function Home() {
 
       {tab === 'markets' && <MarketScanner markets={displayMarkets} />}
       {tab === 'sizing' && <BetSizer />}
-      {tab === 'portfolio' && <Portfolio />}
+      {tab === 'portfolio' && <Portfolio livePortfolio={livePortfolio} />}
       {tab === 'injuries' && <InjuryFeed />}
     </main>
   )
