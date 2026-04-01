@@ -484,13 +484,163 @@ function InjuryFeed() {
   )
 }
 
+interface EdgePick {
+  ticker: string; title: string; sport: string; team1: string; team2: string
+  yesAsk: number; volume: number; action: string; confidence: string
+  ourProb: number; marketProb: number; edgePct: number; kellyFraction: number
+  injuries: { player: string; team: string; delta: number; status: string }[]
+  reasoning: string
+}
+
+function EdgePicks({ bankroll }: { bankroll: number }) {
+  const [picks, setPicks] = useState<EdgePick[]>([])
+  const [loading, setLoading] = useState(true)
+  const [live, setLive] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState<string>('')
+
+  function load() {
+    setLoading(true)
+    fetch('/api/edge')
+      .then(r => r.json())
+      .then(d => {
+        setPicks(d.picks ?? [])
+        setLive(d.live ?? false)
+        setLastUpdated(new Date().toLocaleTimeString())
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => { load() }, [])
+
+  const bets = picks.filter(p => p.action !== 'PASS')
+  const passes = picks.filter(p => p.action === 'PASS')
+
+  const actionStyle = (action: string, conf: string) => {
+    if (action === 'PASS') return { border: 'border-gray-700', bg: 'bg-gray-900', badge: 'bg-gray-800 text-gray-400' }
+    if (conf === 'HIGH') return { border: 'border-green-500', bg: 'bg-green-950/30', badge: 'bg-green-700 text-white' }
+    if (conf === 'MEDIUM') return { border: 'border-yellow-600', bg: 'bg-yellow-950/20', badge: 'bg-yellow-700 text-white' }
+    return { border: 'border-blue-700', bg: 'bg-blue-950/20', badge: 'bg-blue-800 text-white' }
+  }
+
+  if (loading) return (
+    <div className="text-center py-20 text-gray-400">
+      <div className="text-3xl mb-3 animate-pulse">⚡</div>
+      <div>Scanning markets + injury reports...</div>
+    </div>
+  )
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="font-bold text-white text-lg">Today's Edge Picks</h2>
+          <p className="text-gray-500 text-xs mt-0.5">
+            Injury-adjusted probability vs. Kalshi market price · {lastUpdated && `Updated ${lastUpdated}`}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {live
+            ? <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded font-bold">● LIVE</span>
+            : <span className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded">OFFLINE</span>}
+          <button onClick={load} className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded-lg">↻ Refresh</button>
+        </div>
+      </div>
+
+      {bets.length === 0 && (
+        <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 text-center text-gray-400 mb-6">
+          No edges found right now — markets are fairly priced or no games are open. Check back closer to game time.
+        </div>
+      )}
+
+      {bets.length > 0 && (
+        <>
+          <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
+            {bets.length} Edge{bets.length !== 1 ? 's' : ''} Found
+          </div>
+          <div className="flex flex-col gap-4 mb-8">
+            {bets.map(pick => {
+              const style = actionStyle(pick.action, pick.confidence)
+              const betSize = Math.min(bankroll * pick.kellyFraction, bankroll * 0.01)
+              const contracts = Math.floor(betSize / pick.yesAsk)
+              return (
+                <div key={pick.ticker} className={`rounded-xl border p-5 ${style.border} ${style.bg}`}>
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className={`text-sm font-bold px-3 py-1 rounded-lg ${style.badge}`}>
+                          {pick.action}
+                        </span>
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                          pick.confidence === 'HIGH' ? 'bg-green-900 text-green-300' :
+                          pick.confidence === 'MEDIUM' ? 'bg-yellow-900 text-yellow-300' :
+                          'bg-gray-800 text-gray-400'
+                        }`}>{pick.confidence} CONFIDENCE</span>
+                        <span className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded">{pick.sport}</span>
+                      </div>
+                      <div className="text-white font-bold text-base">{pick.title}</div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-green-400 font-bold text-lg">+{pick.edgePct}%</div>
+                      <div className="text-gray-500 text-xs">edge</div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3 mb-3 text-center">
+                    <div className="bg-black/30 rounded-lg p-2">
+                      <div className="text-xs text-gray-400">Market Price</div>
+                      <div className="text-white font-bold">{pick.marketProb}¢</div>
+                    </div>
+                    <div className="bg-black/30 rounded-lg p-2">
+                      <div className="text-xs text-gray-400">Our Estimate</div>
+                      <div className="text-green-400 font-bold">{pick.ourProb}¢</div>
+                    </div>
+                    <div className="bg-black/30 rounded-lg p-2">
+                      <div className="text-xs text-gray-400">Suggested Size</div>
+                      <div className="text-white font-bold">${betSize.toFixed(2)}</div>
+                      <div className="text-xs text-gray-500">{contracts} contracts</div>
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-gray-400 bg-black/20 rounded-lg px-3 py-2">
+                    💡 {pick.reasoning}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+
+      {passes.length > 0 && (
+        <>
+          <div className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-3">
+            {passes.length} Pass{passes.length !== 1 ? 'es' : ''} — No Edge
+          </div>
+          <div className="flex flex-col gap-2">
+            {passes.slice(0, 8).map(pick => (
+              <div key={pick.ticker} className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex items-center justify-between">
+                <div>
+                  <div className="text-gray-400 text-sm">{pick.title}</div>
+                  <div className="text-gray-600 text-xs">{pick.sport} · Market: {pick.marketProb}¢ · Our est: {pick.ourProb}¢</div>
+                </div>
+                <span className="text-xs bg-gray-800 text-gray-500 px-2 py-0.5 rounded font-bold">PASS</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 interface LivePortfolio {
   positions: { ticker: string; position: number; market_exposure: number; realized_pnl: number; unrealized_pnl: number; total_cost: number }[]
   balance: { balance: number; payout: number }
 }
 
 export default function Home() {
-  const [tab, setTab] = useState<'markets' | 'sizing' | 'portfolio' | 'injuries'>('markets')
+  const [tab, setTab] = useState<'edge' | 'markets' | 'sizing' | 'portfolio' | 'injuries'>('edge')
   const [apiKey, setApiKey] = useState<string>('')
   const [showSettings, setShowSettings] = useState(false)
   const [liveMarkets, setLiveMarkets] = useState<typeof mockMarkets | null>(null)
@@ -585,12 +735,14 @@ export default function Home() {
       )}
 
       <div className="flex gap-1 bg-gray-900 p-1 rounded-xl mb-6 overflow-x-auto">
+        <NavTab label="⚡ Edge Picks" active={tab === 'edge'} onClick={() => setTab('edge')} />
         <NavTab label="📊 Markets" active={tab === 'markets'} onClick={() => setTab('markets')} />
         <NavTab label="🎯 Bet Sizing" active={tab === 'sizing'} onClick={() => setTab('sizing')} />
         <NavTab label="💼 Portfolio" active={tab === 'portfolio'} onClick={() => setTab('portfolio')} />
         <NavTab label="🏥 Injuries" active={tab === 'injuries'} onClick={() => setTab('injuries')} />
       </div>
 
+      {tab === 'edge' && <EdgePicks bankroll={parseFloat(portfolioBalance)} />}
       {tab === 'markets' && <MarketScanner markets={displayMarkets} />}
       {tab === 'sizing' && <BetSizer />}
       {tab === 'portfolio' && <Portfolio livePortfolio={livePortfolio} />}
